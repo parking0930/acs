@@ -1,10 +1,20 @@
+import os
 import cv2
 import numpy as np
+import RPi.GPIO as GPIO
+import time
+import picamera
+import logging
+import telegram
 from os import listdir
 from os.path import isdir, isfile, join
-
+from datetime import datetime
+GPIO.setmode(GPIO.BCM)
+GPIO.setup(14, GPIO.OUT, initial=GPIO.HIGH)
+bot = telegram.Bot(token='2063832595:AAHXOcez_70VveYrHl9c7xoRJuJ7SphoRAo')
+chat_id = 2078275327
 # 얼굴 인식용 haar/cascade 로딩
-face_classifier = cv2.CascadeClassifier('/home/pi/haarcascades/haarcascade_frontalface_default.xml')    
+face_classifier = cv2.CascadeClassifier('./haarcascades/haarcascade_frontalface_default.xml')    
 
 # 사용자 얼굴 학습
 def train(name):
@@ -75,52 +85,73 @@ def face_detector(img, size = 0.5):
 def run(models):    
     #카메라 열기 
     cap = cv2.VideoCapture(0)
-    
-    while True:
-        #카메라로 부터 사진 한장 읽기 
-        ret, frame = cap.read()
-        # 얼굴 검출 시도 
-        image, face = face_detector(frame)
-        try:            
-            min_score = 999       #가장 낮은 점수로 예측된 사람의 점수
-            min_score_name = ""   #가장 높은 점수로 예측된 사람의 이름
+    try:
+        while True:
+            #카메라로 부터 사진 한장 읽기 
+            ret, frame = cap.read()
+            # 얼굴 검출 시도 
+            image, face = face_detector(frame)
+            try:            
+                min_score = 999       #가장 낮은 점수로 예측된 사람의 점수
+                min_score_name = ""   #가장 높은 점수로 예측된 사람의 이름
             
-            #검출된 사진을 흑백으로 변환 
-            face = cv2.cvtColor(face, cv2.COLOR_BGR2GRAY)
+                #검출된 사진을 흑백으로 변환 
+                face = cv2.cvtColor(face, cv2.COLOR_BGR2GRAY)
 
-            #위에서 학습한 모델로 예측시도
-            for key, model in models.items():
-                result = model.predict(face)                
-                if min_score > result[1]:
-                    min_score = result[1]
-                    min_score_name = key
+                #위에서 학습한 모델로 예측시도
+                for key, model in models.items():
+                    result = model.predict(face)                
+                    if min_score > result[1]:
+                        min_score = result[1]
+                        min_score_name = key
                     
-            #min_score 신뢰도이고 0에 가까울수록 자신과 같다는 뜻이다.         
-            if min_score < 500:
-                #????? 어쨋든 0~100표시하려고 한듯 
-                confidence = int(100*(1-(min_score)/300))
-                # 유사도 화면에 표시 
-                display_string = str(confidence)+'% Confidence it is ' + min_score_name
-            cv2.putText(image,display_string,(100,120), cv2.FONT_HERSHEY_COMPLEX,1,(250,120,255),2)
-            #75 보다 크면 동일 인물로 간주해 UnLocked! 
-            if confidence > 75:
-                cv2.putText(image, "Unlocked : " + min_score_name, (250, 450), cv2.FONT_HERSHEY_COMPLEX, 1, (0, 255, 0), 2)
+                #min_score 신뢰도이고 0에 가까울수록 자신과 같다는 뜻이다.         
+                if min_score < 500:
+                    #????? 어쨋든 0~100표시하려고 한듯 
+                    confidence = int(100*(1-(min_score)/300))
+                    # 유사도 화면에 표시 
+                    display_string = str(confidence)+'% Confidence it is ' + min_score_name
+                cv2.putText(image,display_string,(100,120), cv2.FONT_HERSHEY_COMPLEX,1,(250,120,255),2)
+                #75 보다 크면 동일 인물로 간주해 UnLocked! 
+                if confidence > 70:
+                    cv2.putText(image, "Unlocked : " + min_score_name, (250, 450), cv2.FONT_HERSHEY_COMPLEX, 1, (0, 255, 0), 2)
+                    cv2.imshow('Face Cropper', image)
+                    now = str(datetime.now().strftime('%Y-%m-%d %H:%M'))
+                    file_list = os.listdir('./Save')
+                    exist_person = False
+                    for filename in file_list:
+                        if filename == (min_score_name+'|'+now+'.jpg'):
+                            print("이미 있는 사진")
+                            exist_person = True
+                            break
+                    if exist_person:
+                        continue
+                
+                    GPIO.output(14, GPIO.LOW)
+                    #텔레그램으로 사진 전송
+                    cap_name = min_score_name+'|'+now + ".jpg"
+                    cv2.imwrite('./Save/'+cap_name, frame)
+                    bot.sendPhoto(chat_id=chat_id,photo=open('./Save/'+cap_name,'rb'))
+                    bot.send_message(chat_id=chat_id, text="") 
+                else:
+                #75 이하면 타인.. Locked!!! 
+                    cv2.putText(image, "Locked", (250, 450), cv2.FONT_HERSHEY_COMPLEX, 1, (0, 0, 255), 2)
+                    cv2.imshow('Face Cropper', image)
+            except:
+                #얼굴 검출 안됨 
+                cv2.putText(image, "Face Not Found", (250, 450), cv2.FONT_HERSHEY_COMPLEX, 1, (255, 0, 0), 2)
                 cv2.imshow('Face Cropper', image)
-            else:
-            #75 이하면 타인.. Locked!!! 
-                cv2.putText(image, "Locked", (250, 450), cv2.FONT_HERSHEY_COMPLEX, 1, (0, 0, 255), 2)
-                cv2.imshow('Face Cropper', image)
-        except:
-            #얼굴 검출 안됨 
-            cv2.putText(image, "Face Not Found", (250, 450), cv2.FONT_HERSHEY_COMPLEX, 1, (255, 0, 0), 2)
-            cv2.imshow('Face Cropper', image)
-            pass
-        if cv2.waitKey(1)==13:
-            break
-    cap.release()
-    cv2.destroyAllWindows()
+                pass
+            if cv2.waitKey(1)==13:
+                break
+        cap.release()
+        cv2.destroyAllWindows()
+    except KeyboardInterrupt:
+        GPIO.cleanup()
+
 
 if __name__ == "__main__":
+    GPIO.output(14, GPIO.HIGH)
     # 학습 시작
     models = trains()
     # 고!
