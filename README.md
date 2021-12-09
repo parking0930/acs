@@ -424,3 +424,6 @@ def face_detector(img, size = 0.5):
  
 </details>
     
+## 한계점
+- 텔레그램으로 인가 여부 및 정보를 보냈으나 DB로 보내는 부분은 문제가 생겨 하지 못하였음. 
+![1](https://user-images.githubusercontent.com/28342911/145446239-44bcf6ef-4460-4191-af80-d169d3946507.JPG)
